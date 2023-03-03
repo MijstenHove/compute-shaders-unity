@@ -1,0 +1,105 @@
+﻿#pragma kernel CSMain
+
+ // Particle's data
+struct Particle
+{
+	float3 position;
+	float3 velocity;
+	float life;
+};
+
+struct Vertex
+{
+	float3 position;
+	float2 uv;
+	float life;
+};
+
+// Particle's data, shared with the shader
+RWStructuredBuffer<Particle> particleBuffer;
+RWStructuredBuffer<Vertex> vertexBuffer;
+
+// Variables set from the CPU 
+float deltaTime;
+float2 mousePosition;
+float halfSize;
+
+uint rng_state;
+
+// http://www.reedbeta.com/blog/quick-and-easy-gpu-random-numbers-in-d3d11/
+uint rand_xorshift()
+{
+	// Xorshift algorithm from George Marsaglia's paper
+	rng_state ^= (rng_state << 13);
+	rng_state ^= (rng_state >> 17);
+	rng_state ^= (rng_state << 5);
+	return rng_state;
+}
+
+void respawn(uint id)
+{
+	rng_state = id;
+	float tmp = (1.0 / 4294967296.0);
+	float f0 = float(rand_xorshift()) * tmp - 0.5;
+	float f1 = float(rand_xorshift()) * tmp - 0.5;
+	float f2 = float(rand_xorshift()) * tmp - 0.5;
+	float3 normalF3 = normalize(float3(f0, f1, f2)) * 0.8f;
+	normalF3 *= float(rand_xorshift()) * tmp;
+	particleBuffer[id].position = float3(normalF3.x + mousePosition.x, normalF3.y + mousePosition.y, normalF3.z + 3.0);
+	// reset the life of this particle
+	particleBuffer[id].life = 4;
+	particleBuffer[id].velocity = float3(0,0,0);
+}
+
+[numthreads(256, 1, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID)
+{
+	Particle p = particleBuffer[id.x];
+	
+	// subtract the life based on deltaTime
+	p.life -= deltaTime;
+
+	float3 delta = float3(mousePosition.xy, 3) - p.position;
+	float3 dir = normalize(delta);
+
+	p.velocity += dir;
+	p.position += p.velocity * deltaTime;
+
+	particleBuffer[id.x] = p;
+	
+	if (particleBuffer[id.x].life < 0){
+		respawn(id.x);
+		p = particleBuffer[id.x];
+	}
+	
+	//Set the vertex buffer //
+	int index = id.x * 6;
+	//Triangle 1 - bottom-left, top-left, top-right   
+	vertexBuffer[index].position.x = p.position.x-halfSize;
+	vertexBuffer[index].position.y = p.position.y-halfSize;
+	vertexBuffer[index].position.z = p.position.z;
+	vertexBuffer[index].life = p.life;
+	vertexBuffer[index+1].position.x = p.position.x-halfSize;
+	vertexBuffer[index+1].position.y = p.position.y+halfSize;
+	vertexBuffer[index+1].position.z = p.position.z;
+	vertexBuffer[index+1].life = p.life;
+	vertexBuffer[index+2].position.x = p.position.x+halfSize;
+	vertexBuffer[index+2].position.y = p.position.y+halfSize;
+	vertexBuffer[index+2].position.z = p.position.z;
+	vertexBuffer[index+2].life = p.life;
+	//Triangle 2 - bottom-left, top-right, bottom-right  // // 
+	vertexBuffer[index+3].position.x = p.position.x-halfSize;
+	vertexBuffer[index+3].position.y = p.position.y-halfSize;
+	vertexBuffer[index+3].position.z = p.position.z;
+	vertexBuffer[index+3].life = p.life;
+	vertexBuffer[index+4].position.x = p.position.x+halfSize;
+	vertexBuffer[index+4].position.y = p.position.y+halfSize;
+	vertexBuffer[index+4].position.z = p.position.z;
+	vertexBuffer[index+4].life = p.life;
+	vertexBuffer[index+5].position.x = p.position.x+halfSize;
+	vertexBuffer[index+5].position.y = p.position.y-halfSize;
+	vertexBuffer[index+5].position.z = p.position.z;
+	vertexBuffer[index+5].life = p.life;
+}
+
+
